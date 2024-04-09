@@ -43,14 +43,12 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
 
     cudaMemcpy(result, d_result, n * sizeof(int), cudaMemcpyDeviceToHost);
 
-    int max_val = result[n - 1];
-
     free(result);
     cudaFree(d_items_weight);
     cudaFree(d_items_val);
     cudaFree(d_result);
 
-    return max_val;
+    return result[n - 1];
 }
 
 void separator(int n, int bag, int *items_weight, int *items_val, int *items_priority) {
