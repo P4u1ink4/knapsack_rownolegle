@@ -55,12 +55,14 @@ int dynamic(int bag, int items_weight[], int items_val[], int n) {
         }
     }
 
+    int result = matrix[n][bag];
+
     for (int i = 0; i <= n; i++) {
         free(matrix[i]);
     }
     free(matrix);
 
-    return matrix[n][bag];
+    return result;
 }
 
 void separator(int n, int bag, int items_weight[], int items_val[], int items_priority[]) {
