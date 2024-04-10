@@ -6,24 +6,41 @@
 
 #define MAX_VALUE 10
 
-__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result) {
-    int idx = threadIdx.x;
-    extern __shared__ int matrix[];
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
-    matrix[idx] = 0;
-    __syncthreads();
+__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result, int *matrix) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    for (int i = 1; i <= n; i++) {
-        for (int j = bag; j >= items_weight[i - 1]; j--) {
-            if (idx >= items_weight[i - 1])
-                atomicMax(&matrix[j], matrix[j - items_weight[i - 1]] + items_val[i - 1]);
+    if (idx <= bag) {
+        for (int i = 0; i <= n; i++) {
+            __syncthreads();
+            int currentRow = i % 2;
+            int previousRow = (i - 1) % 2;
+            if (idx == 0) {
+                matrix[(bag+1)*currentRow] = 0;
+            }
+            else if( i==0 ){
+                matrix[idx] = 0;
+            }
+            else if (idx >= items_weight[i - 1]) {
+                int val = matrix[(bag+1)*previousRow + idx - items_weight[i - 1]] + items_val[i - 1];
+                matrix[(bag+1)*currentRow + idx] = max(matrix[(bag+1)*previousRow + idx], val);
+            }
+            else {
+                matrix[(bag+1)*currentRow + idx] = matrix[(bag+1)*previousRow + idx];
+            }
+            __syncthreads();
         }
-        __syncthreads();
-    }
-
-    if (idx == 0) {
-        for (int i = 1; i <= bag; i++) {
-            atomicMax(result, matrix[i]);
+        if (idx == bag) {
+            atomicMax(result, matrix[(bag+1)*(n % 2) + idx]);
         }
     }
 }
@@ -38,10 +55,15 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
     cudaMemcpy(d_items_weight, items_weight, n * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_items_val, items_val, n * sizeof(int), cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 1024;
+    int *d_matrix;
+    cudaMalloc((void **)&d_matrix, (bag+1) * 2 * sizeof(int));
+
+    int threadsPerBlock = 256;
     int blocksPerGrid = (bag + threadsPerBlock - 1) / threadsPerBlock;
 
-    dynamic_kernel<<<blocksPerGrid, threadsPerBlock, threadsPerBlock * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result);
+    dynamic_kernel<<<blocksPerGrid, threadsPerBlock>>>(bag, d_items_weight, d_items_val, n, d_result, d_matrix);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
 
     int result;
     cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
@@ -80,9 +102,11 @@ void separator(int n, int bag, int *items_weight, int *items_val, int *items_pri
     if (max_weight_elements_with_priority <= bag) {
         printf("Przedmioty konieczne w plecaku\n");
         bag -= max_weight_elements_with_priority;
-        max_sum_dynamic += dynamic_cuda(bag, else_elements_weight, else_elements_val, n_elements_without_priority);
+        if(bag>0){
+            max_sum_dynamic += dynamic_cuda(bag, else_elements_weight, else_elements_val, n_elements_without_priority);
+        }
     } else {
-        printf("Nie udało się zmieścić wszystkich koniecznych przedmiotów w plecaku.\n");
+        printf("Nie udalo sie zmiescic wszystkich koniecznych przedmioow w plecaku.\n");
         max_sum_dynamic = dynamic_cuda(bag, items_weight, items_val, n);
     }
 
@@ -120,8 +144,8 @@ int main(int argc, char *argv[]) {
     for (int j = 0; j < n_items; j++) {
         items_weight[j] = rand() % (bag_size / 2) + 1;
         items_val[j] = rand() % MAX_VALUE + 1;
-        // items_priority[j] = 0;
-        items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
+        items_priority[j] = 0;
+        // items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
     }
 
     generator(n_items, bag_size, items_weight, items_val, items_priority);
