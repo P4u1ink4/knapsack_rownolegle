@@ -55,8 +55,6 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
     int *matrix;
     cudaMallocManaged(&matrix, (bag+1)*(n+1)*sizeof(int));
     dynamic_kernel<<<blocksPerGrid, threadsPerBlock>>>(bag, d_items_weight, d_items_val, n, d_result, matrix);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
 
     int result;
     cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
