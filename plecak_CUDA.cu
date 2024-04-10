@@ -12,25 +12,29 @@ __global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n
     if (idx <= bag) {
         for (int i = 0; i <= n; i++) {
             __syncthreads();
-            int currentRow = i % 2;
-            int previousRow = (i - 1) % 2;
             if (idx == 0) {
-                matrix[(bag+1)*currentRow] = 0;
+                matrix[(bag+1)*i] = 0;
             }
             else if( i==0 ){
                 matrix[idx] = 0;
             }
             else if (idx >= items_weight[i - 1]) {
-                int val = matrix[(bag+1)*previousRow + idx - items_weight[i - 1]] + items_val[i - 1];
-                matrix[(bag+1)*currentRow + idx] = max(matrix[(bag+1)*previousRow + idx], val);
+                int val = matrix[(bag+1)*(i-1) + idx - items_weight[i - 1]] + items_val[i - 1];
+                matrix[(bag+1)*i + idx] = max(matrix[(bag+1)*(i-1) + idx], val);
             }
             else {
-                matrix[(bag+1)*currentRow + idx] = matrix[(bag+1)*previousRow + idx];
+                matrix[(bag+1)*i + idx] = matrix[(bag+1)*(i-1) + idx];
             }
             __syncthreads();
         }
         if (idx == bag) {
-            atomicMax(result, matrix[(bag+1)*(n % 2) + idx]);
+            atomicMax(result, matrix[(bag+1)*n + idx]);
+            for (int i = 0; i <= n; i++) {
+                for (int j = 0; j <= bag; j++) {
+                    printf("%d ", matrix[(bag+1)*i + j]);
+                }
+                printf("\n");
+            }
         }
     }
 }
@@ -45,13 +49,14 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
     cudaMemcpy(d_items_weight, items_weight, n * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_items_val, items_val, n * sizeof(int), cudaMemcpyHostToDevice);
 
-    int *d_matrix;
-    cudaMalloc((void **)&d_matrix, (bag+1) * 2 * sizeof(int));
-
     int threadsPerBlock = 256;
     int blocksPerGrid = (bag + threadsPerBlock - 1) / threadsPerBlock;
 
-    dynamic_kernel<<<blocksPerGrid, threadsPerBlock>>>(bag, d_items_weight, d_items_val, n, d_result, d_matrix);
+    int *matrix;
+    cudaMallocManaged(&matrix, (bag+1)*(n+1)*sizeof(int));
+    dynamic_kernel<<<blocksPerGrid, threadsPerBlock>>>(bag, d_items_weight, d_items_val, n, d_result, matrix);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
 
     int result;
     cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
