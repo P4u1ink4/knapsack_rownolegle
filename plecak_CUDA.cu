@@ -9,27 +9,21 @@ __global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
     if (idx < n) {
-        extern __shared__ int temp[]; // Shared memory for dynamic programming table
-        int *matrix = temp + (bag + 1) * idx; // Each thread has its own row in the matrix
+        int matrix[MAX_VALUE] = {0}; // Initialize all elements to 0
+        int chosen[MAX_VALUE] = {0}; // Initialize all elements to 0
 
         for (int j = 0; j <= bag; j++) {
-            if (idx == 0 || j == 0)
-                matrix[j] = 0;
-            else if (items_weight[idx] <= j) {
+            if (items_weight[idx] <= j) {
                 int newVal = matrix[j - items_weight[idx]] + items_val[idx];
-                matrix[j] = (newVal > matrix[j]) ? newVal : matrix[j];
+                if (newVal > matrix[j]) {
+                    matrix[j] = newVal;
+                    chosen[j] = idx + 1; // Store the item index + 1
+                }
             }
-            else
-                matrix[j] = matrix[j];
-
-            __syncthreads(); // Synchronize threads after each j iteration
         }
 
         result[idx] = matrix[bag];
-
-        // Record chosen items
-        if (matrix[bag] != 0)
-            chosen_items[idx] = 1;
+        chosen_items[idx] = chosen[bag];
     }
 }
 
