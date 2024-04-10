@@ -38,7 +38,10 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
     cudaMemcpy(d_items_weight, items_weight, n * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_items_val, items_val, n * sizeof(int), cudaMemcpyHostToDevice);
 
-    dynamic_kernel<<<1, bag+1, (bag + 1) * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result);
+    int threadsPerBlock = 1024;
+    int blocksPerGrid = (bag + threadsPerBlock - 1) / threadsPerBlock;
+
+    dynamic_kernel<<<blocksPerGrid, threadsPerBlock, threadsPerBlock * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result);
 
     int result;
     cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
