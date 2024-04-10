@@ -5,18 +5,18 @@
 
 #define MAX_VALUE 10
 
-__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result) {
+__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result, int *chosen_items) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
     if (idx < n) {
         extern __shared__ int temp[]; // Shared memory for dynamic programming table
-        int *matrix = temp;
+        int *matrix = temp + (bag + 1) * idx; // Each thread has its own row in the matrix
 
         for (int j = 0; j <= bag; j++) {
             if (idx == 0 || j == 0)
                 matrix[j] = 0;
-            else if (items_weight[idx - 1] <= j) {
-                int newVal = matrix[j - items_weight[idx - 1]] + items_val[idx - 1];
+            else if (items_weight[idx] <= j) {
+                int newVal = matrix[j - items_weight[idx]] + items_val[idx];
                 matrix[j] = (newVal > matrix[j]) ? newVal : matrix[j];
             }
             else
@@ -26,24 +26,39 @@ __global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n
         }
 
         result[idx] = matrix[bag];
+
+        // Record chosen items
+        if (matrix[bag] != 0)
+            chosen_items[idx] = 1;
     }
 }
 
+void print_chosen_items(int n, int *items_weight, int *items_val, int *chosen_items) {
+    printf("Przedmioty w plecaku:\n");
+    for (int i = 0; i < n; i++) {
+        if (chosen_items[i] == 1) {
+            printf("  Przedmiot %d: Waga: %d, Wartosc: %d\n", i, items_weight[i], items_val[i]);
+        }
+    }
+}
 
 int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
-    int *d_items_weight, *d_items_val, *d_result;
+    int *d_items_weight, *d_items_val, *d_result, *d_chosen_items;
     int *result = (int *)malloc(n * sizeof(int));
+    int *chosen_items = (int *)malloc(n * sizeof(int));
 
     cudaMalloc(&d_items_weight, n * sizeof(int));
     cudaMalloc(&d_items_val, n * sizeof(int));
     cudaMalloc(&d_result, n * sizeof(int));
+    cudaMalloc(&d_chosen_items, n * sizeof(int));
 
     cudaMemcpy(d_items_weight, items_weight, n * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_items_val, items_val, n * sizeof(int), cudaMemcpyHostToDevice);
 
-    dynamic_kernel<<<(n + 255) / 256, 256, (bag + 1) * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result);
+    dynamic_kernel<<<(n + 255) / 256, 256, (bag + 1) * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result, d_chosen_items);
 
     cudaMemcpy(result, d_result, n * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(chosen_items, d_chosen_items, n * sizeof(int), cudaMemcpyDeviceToHost);
 
     int max_result = 0;
     for (int i = 0; i < n; i++) {
@@ -51,13 +66,18 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
             max_result = result[i];
     }
 
+    print_chosen_items(n, items_weight, items_val, chosen_items);
+
     free(result);
+    free(chosen_items);
     cudaFree(d_items_weight);
     cudaFree(d_items_val);
     cudaFree(d_result);
+    cudaFree(d_chosen_items);
 
     return max_result;
 }
+
 
 void separator(int n, int bag, int *items_weight, int *items_val, int *items_priority) {
     int n_elements_with_priority = 0;
@@ -122,7 +142,7 @@ int main(int argc, char *argv[]) {
     int bag_size = 4;
     int items_weight[3] = {2,3,2};
     int items_val[3] = {3,4,2};
-    int items_priority[3] = {0  ,0,0};
+    int items_priority[3] = {0,0,0};
 
     generator(n_items, bag_size, items_weight, items_val, items_priority);
 
