@@ -21,6 +21,8 @@ __global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n
             }
             else
                 matrix[j] = matrix[j];
+
+            __syncthreads(); // Synchronize threads after each j iteration
         }
 
         result[idx] = matrix[bag];
@@ -43,14 +45,18 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
 
     cudaMemcpy(result, d_result, n * sizeof(int), cudaMemcpyDeviceToHost);
 
-    int last_result = result[n - 1];
+    int max_result = 0;
+    for (int i = 0; i < n; i++) {
+        if (result[i] > max_result)
+            max_result = result[i];
+    }
 
     free(result);
     cudaFree(d_items_weight);
     cudaFree(d_items_val);
     cudaFree(d_result);
 
-    return last_result;
+    return max_result;
 }
 
 void separator(int n, int bag, int *items_weight, int *items_val, int *items_priority) {
@@ -112,19 +118,11 @@ int main(int argc, char *argv[]) {
     // int n_items[6] = {5000,10000,15000,20000,25000,30000};
     // int bag_sizes[6] = {10000,10000,10000,10000,10000,10000};
 
-    int n_items = atoi(argv[1]);
-    int bag_size = atoi(argv[2]);
-
-    int *items_weight = (int *)malloc(n_items * sizeof(int));
-    int *items_val = (int *)malloc(n_items * sizeof(int));
-    int *items_priority = (int *)malloc(n_items * sizeof(int));
-
-    for (int j = 0; j < n_items; j++) {
-        items_weight[j] = rand() % (bag_size / 2) + 1;
-        items_val[j] = rand() % MAX_VALUE + 1;
-        // items_priority[j] = 0;
-        items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
-    }
+    int n_items = 3;
+    int bag_size = 4;
+    int items_weight[3] = {2,3,2};
+    int items_val[3] = {3,4,2};
+    int items_priority[3] = {0  ,0,0};
 
     generator(n_items, bag_size, items_weight, items_val, items_priority);
 
