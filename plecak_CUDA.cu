@@ -6,16 +6,6 @@
 
 #define MAX_VALUE 10
 
-#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-   if (code != cudaSuccess) 
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
-   }
-}
-
 __global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result, int *matrix) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -62,8 +52,6 @@ int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
     int blocksPerGrid = (bag + threadsPerBlock - 1) / threadsPerBlock;
 
     dynamic_kernel<<<blocksPerGrid, threadsPerBlock>>>(bag, d_items_weight, d_items_val, n, d_result, d_matrix);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
 
     int result;
     cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
