@@ -1,77 +1,54 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <cuda_runtime.h>
 #include <math.h>
+#include <cuda.h>
 
 #define MAX_VALUE 10
 
-__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result, int *chosen_items) {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+__global__ void dynamic_kernel(int bag, int *items_weight, int *items_val, int n, int *result) {
+    int idx = threadIdx.x;
+    extern __shared__ int matrix[];
 
-    if (idx < n) {
-        int matrix[MAX_VALUE] = {0}; // Initialize all elements to 0
-        int chosen[MAX_VALUE] = {0}; // Initialize all elements to 0
+    matrix[idx] = 0;
+    __syncthreads();
 
-        for (int j = 0; j <= bag; j++) {
-            if (items_weight[idx] <= j) {
-                int newVal = matrix[j - items_weight[idx]] + items_val[idx];
-                if (newVal > matrix[j]) {
-                    matrix[j] = newVal;
-                    chosen[j] = idx + 1; // Store the item index + 1
-                }
-            }
+    for (int i = 1; i <= n; i++) {
+        for (int j = bag; j >= items_weight[i - 1]; j--) {
+            if (idx >= items_weight[i - 1])
+                atomicMax(&matrix[j], matrix[j - items_weight[i - 1]] + items_val[i - 1]);
         }
-
-        result[idx] = matrix[bag];
-        chosen_items[idx] = chosen[bag];
+        __syncthreads();
     }
-}
 
-void print_chosen_items(int n, int *items_weight, int *items_val, int *chosen_items) {
-    printf("Przedmioty w plecaku:\n");
-    for (int i = 0; i < n; i++) {
-        if (chosen_items[i] == 1) {
-            printf("  Przedmiot %d: Waga: %d, Wartosc: %d\n", i, items_weight[i], items_val[i]);
+    if (idx == 0) {
+        for (int i = 1; i <= bag; i++) {
+            atomicMax(result, matrix[i]);
         }
     }
 }
 
 int dynamic_cuda(int bag, int *items_weight, int *items_val, int n) {
-    int *d_items_weight, *d_items_val, *d_result, *d_chosen_items;
-    int *result = (int *)malloc(n * sizeof(int));
-    int *chosen_items = (int *)malloc(n * sizeof(int));
+    int *d_items_weight, *d_items_val, *d_result;
 
-    cudaMalloc(&d_items_weight, n * sizeof(int));
-    cudaMalloc(&d_items_val, n * sizeof(int));
-    cudaMalloc(&d_result, n * sizeof(int));
-    cudaMalloc(&d_chosen_items, n * sizeof(int));
+    cudaMalloc((void **)&d_items_weight, n * sizeof(int));
+    cudaMalloc((void **)&d_items_val, n * sizeof(int));
+    cudaMalloc((void **)&d_result, sizeof(int));
 
     cudaMemcpy(d_items_weight, items_weight, n * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_items_val, items_val, n * sizeof(int), cudaMemcpyHostToDevice);
 
-    dynamic_kernel<<<(n + 255) / 256, 256, (bag + 1) * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result, d_chosen_items);
+    dynamic_kernel<<<1, bag+1, (bag + 1) * sizeof(int)>>>(bag, d_items_weight, d_items_val, n, d_result);
 
-    cudaMemcpy(result, d_result, n * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(chosen_items, d_chosen_items, n * sizeof(int), cudaMemcpyDeviceToHost);
+    int result;
+    cudaMemcpy(&result, d_result, sizeof(int), cudaMemcpyDeviceToHost);
 
-    int max_result = 0;
-    for (int i = 0; i < n; i++) {
-        if (result[i] > max_result)
-            max_result = result[i];
-    }
-
-    print_chosen_items(n, items_weight, items_val, chosen_items);
-
-    free(result);
-    free(chosen_items);
     cudaFree(d_items_weight);
     cudaFree(d_items_val);
     cudaFree(d_result);
-    cudaFree(d_chosen_items);
 
-    return max_result;
+    return result;
 }
-
 
 void separator(int n, int bag, int *items_weight, int *items_val, int *items_priority) {
     int n_elements_with_priority = 0;
@@ -102,7 +79,7 @@ void separator(int n, int bag, int *items_weight, int *items_val, int *items_pri
         bag -= max_weight_elements_with_priority;
         max_sum_dynamic += dynamic_cuda(bag, else_elements_weight, else_elements_val, n_elements_without_priority);
     } else {
-        printf("Nie udalo zmiescic sie wszystkich koniecznych przedmiotow w plecaku.\n");
+        printf("Nie udało się zmieścić wszystkich koniecznych przedmiotów w plecaku.\n");
         max_sum_dynamic = dynamic_cuda(bag, items_weight, items_val, n);
     }
 
@@ -128,21 +105,23 @@ void generator(int n, int bag, int *items_weight, int *items_val, int *items_pri
     printf("Czas wykonania: %f s\n", end - start);
 }
 
-int main(int argc, char *argv[]) {
-    // int n_items[6] = {5000,10000,15000,20000,25000,30000};
-    // int bag_sizes[6] = {10000,10000,10000,10000,10000,10000};
+int main(int argc, char* argv[]) {
 
-    int n_items = 3;
-    int bag_size = 4;
-    int items_weight[3] = {2,3,2};
-    int items_val[3] = {3,4,2};
-    int items_priority[3] = {0,0,0};
+    int n_items = 10000;
+    int bag_size = 500;
+
+    int *items_weight = (int *)malloc(n_items * sizeof(int));
+    int *items_val = (int *)malloc(n_items * sizeof(int));
+    int *items_priority = (int *)malloc(n_items * sizeof(int));
+
+    for (int j = 0; j < n_items; j++) {
+        items_weight[j] = rand() % (bag_size / 2) + 1;
+        items_val[j] = rand() % MAX_VALUE + 1;
+        items_priority[j] = 0;
+        // items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
+    }
 
     generator(n_items, bag_size, items_weight, items_val, items_priority);
-
-    free(items_weight);
-    free(items_val);
-    free(items_priority);
 
     return 0;
 }
