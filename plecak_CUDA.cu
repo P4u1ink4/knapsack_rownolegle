@@ -105,10 +105,10 @@ void generator(int n, int bag, int *items_weight, int *items_val, int *items_pri
     printf("Czas wykonania: %f s\n", end - start);
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
 
-    int n_items = 10000;
-    int bag_size = 500;
+    int n_items = atoi(argv[1]);
+    int bag_size = atoi(argv[2]);
 
     int *items_weight = (int *)malloc(n_items * sizeof(int));
     int *items_val = (int *)malloc(n_items * sizeof(int));
@@ -117,11 +117,15 @@ int main(int argc, char* argv[]) {
     for (int j = 0; j < n_items; j++) {
         items_weight[j] = rand() % (bag_size / 2) + 1;
         items_val[j] = rand() % MAX_VALUE + 1;
-        items_priority[j] = 0;
-        // items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
+        // items_priority[j] = 0;
+        items_priority[j] = rand() % (n_items / 2 ) == 0 ? 1 : 0;
     }
 
     generator(n_items, bag_size, items_weight, items_val, items_priority);
+
+    free(items_weight);
+    free(items_val);
+    free(items_priority);
 
     return 0;
 }
